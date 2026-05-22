@@ -1,2 +1,1 @@
 # insta-bot
-Khabar
