@@ -1,12 +1,12 @@
 """
 Daily IT News → Farsi → Instagram
-Fetches top tech news, translates to Farsi, creates a styled image, posts to Instagram.
 """
 
 import os
 import sys
 import base64
 import textwrap
+import time
 import requests
 from datetime import datetime
 from PIL import Image, ImageDraw, ImageFont
@@ -14,18 +14,16 @@ import arabic_reshaper
 from bidi.algorithm import get_display
 from deep_translator import GoogleTranslator
 
-# ── Secrets (set as GitHub Actions secrets) ───────────────────────────────────
-NEWS_API_KEY      = os.environ["NEWS_API_KEY"]
-IG_ACCESS_TOKEN   = os.environ["INSTAGRAM_ACCESS_TOKEN"]
-IG_ACCOUNT_ID     = os.environ["INSTAGRAM_ACCOUNT_ID"]
-IMGBB_API_KEY     = os.environ["IMGBB_API_KEY"]
+NEWS_API_KEY    = os.environ["NEWS_API_KEY"]
+IG_ACCESS_TOKEN = os.environ["INSTAGRAM_ACCESS_TOKEN"]
+IG_ACCOUNT_ID   = os.environ["INSTAGRAM_ACCOUNT_ID"]
+IMGBB_API_KEY   = os.environ["IMGBB_API_KEY"]
 
-# ── Paths ─────────────────────────────────────────────────────────────────────
 FONT_BOLD    = "fonts/Vazirmatn-Bold.ttf"
 FONT_REGULAR = "fonts/Vazirmatn-Regular.ttf"
 IMAGE_OUT    = "post.jpg"
 
-# ── 1. Fetch News ─────────────────────────────────────────────────────────────
+
 def fetch_it_news():
     resp = requests.get(
         "https://newsapi.org/v2/top-headlines",
@@ -45,7 +43,6 @@ def fetch_it_news():
     return None
 
 
-# ── 2. Translate ──────────────────────────────────────────────────────────────
 def to_farsi(text, max_chars=500):
     try:
         result = GoogleTranslator(source="en", target="fa").translate(text[:max_chars])
@@ -55,25 +52,19 @@ def to_farsi(text, max_chars=500):
         return text
 
 
-# ── 3. Farsi text helpers ─────────────────────────────────────────────────────
 def rtl(text):
     return get_display(arabic_reshaper.reshape(text))
 
-def wrap_rtl(text, width):
-    return "\n".join(textwrap.wrap(text, width=width))
 
-
-# ── 4. Create Image ───────────────────────────────────────────────────────────
 def create_post_image(title_fa, desc_fa, source):
     W, H = 1080, 1080
 
-    BG_TOP  = "#060818"
     ACCENT  = "#00e5ff"
     ACCENT2 = "#7c3aed"
     WHITE   = "#ffffff"
     MUTED   = "#8899bb"
 
-    img  = Image.new("RGB", (W, H), BG_TOP)
+    img  = Image.new("RGB", (W, H), "#060818")
     draw = ImageDraw.Draw(img)
 
     for y in range(H):
@@ -85,7 +76,6 @@ def create_post_image(title_fa, desc_fa, source):
 
     draw.ellipse([700, -180, 1260, 380], fill="#0b1f4a")
     draw.ellipse([730, -150, 1230, 350], fill="#0d2255")
-
     draw.rectangle([0,   0, W,  6], fill=ACCENT)
     draw.rectangle([0, H-6, W,  H], fill=ACCENT2)
 
@@ -104,12 +94,12 @@ def create_post_image(title_fa, desc_fa, source):
     draw.text((W // 2, 72), brand_text, font=f_brand, fill=ACCENT, anchor="mm")
     draw.rectangle([100, 108, W - 100, 111], fill=ACCENT)
 
-    title_rtl  = rtl(title_fa)
-title_lines = textwrap.wrap(title_fa, width=16)
-title_wrap = "\n".join([rtl(line) for line in title_lines])
-draw.text(
-    (W // 2, 310),
-    title_wrap,
+    # Fix: wrap first, then apply RTL line by line
+    title_lines = textwrap.wrap(title_fa, width=16)
+    title_wrap  = "\n".join([rtl(line) for line in title_lines])
+    draw.text(
+        (W // 2, 310),
+        title_wrap,
         font=f_title,
         fill=WHITE,
         anchor="mm",
@@ -121,12 +111,12 @@ draw.text(
         color = ACCENT if i % 2 == 0 else ACCENT2
         draw.ellipse([x, 510, x + 10, 520], fill=color)
 
-desc_short = desc_fa[:280] + ("..." if len(desc_fa) > 280 else "")
-desc_lines = textwrap.wrap(desc_short, width=26)
-desc_wrap  = "\n".join([rtl(line) for line in desc_lines])
-draw.text(
-    (W // 2, 680),
-    desc_wrap,
+    desc_short  = desc_fa[:280] + ("..." if len(desc_fa) > 280 else "")
+    desc_lines  = textwrap.wrap(desc_short, width=26)
+    desc_wrap   = "\n".join([rtl(line) for line in desc_lines])
+    draw.text(
+        (W // 2, 680),
+        desc_wrap,
         font=f_desc,
         fill=MUTED,
         anchor="mm",
@@ -135,7 +125,6 @@ draw.text(
     )
 
     draw.rectangle([80, 890, W - 80, 892], fill="#1a2d55")
-
     date_str  = datetime.now().strftime("%d %b %Y")
     meta_text = f"📰  {source}   ·   {date_str}"
     draw.text((W // 2, 940), meta_text, font=f_meta, fill=ACCENT, anchor="mm")
@@ -148,18 +137,13 @@ draw.text(
     return IMAGE_OUT
 
 
-# ── 5. Host Image ─────────────────────────────────────────────────────────────
 def upload_image(path):
     with open(path, "rb") as f:
         img_b64 = base64.b64encode(f.read()).decode()
 
     resp = requests.post(
         "https://api.imgbb.com/1/upload",
-        data={
-            "key":        IMGBB_API_KEY,
-            "image":      img_b64,
-            "expiration": 86400,
-        },
+        data={"key": IMGBB_API_KEY, "image": img_b64, "expiration": 86400},
         timeout=30,
     )
     data = resp.json()
@@ -170,12 +154,9 @@ def upload_image(path):
     return url
 
 
-# ── 6. Post to Instagram ──────────────────────────────────────────────────────
 def post_to_instagram(image_url, caption):
-    import time
     base = f"https://graph.instagram.com/v21.0/{IG_ACCOUNT_ID}"
 
-    # Step 1: Create media container
     r1 = requests.post(
         f"{base}/media",
         data={
@@ -192,7 +173,6 @@ def post_to_instagram(image_url, caption):
 
     container_id = container["id"]
 
-    # Step 2: Wait until Instagram finishes processing the image
     print("⏳ Waiting for Instagram to process image...")
     for attempt in range(10):
         time.sleep(8)
@@ -213,7 +193,6 @@ def post_to_instagram(image_url, caption):
     else:
         raise RuntimeError("Media processing timed out after 80 seconds")
 
-    # Step 3: Publish
     r2 = requests.post(
         f"{base}/media_publish",
         data={
@@ -227,7 +206,6 @@ def post_to_instagram(image_url, caption):
     return result
 
 
-# ── Main ──────────────────────────────────────────────────────────────────────
 def main():
     print("=" * 55)
     print(f"🕙  {datetime.utcnow().strftime('%Y-%m-%d %H:%M')} UTC  |  Bot starting…")
