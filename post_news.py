@@ -17,6 +17,7 @@ IMGBB_API_KEY   = os.environ["IMGBB_API_KEY"]
 FONT_BOLD    = "fonts/Vazirmatn-Bold.ttf"
 FONT_REGULAR = "fonts/Vazirmatn-Regular.ttf"
 IMAGE_OUT    = "post.jpg"
+RLM          = "\u200F"   # Right-to-Left Mark for Instagram caption
 
 
 # ── Farsi helpers ─────────────────────────────────────────────────────────────
@@ -26,7 +27,7 @@ def fa(text: str) -> str:
 
 
 def fa_wrap(text: str, font, draw, max_px: int) -> str:
-    """Word-wrap Farsi text to fit within max_px width, measured in pixels."""
+    """Word-wrap Farsi text to fit within max_px width (pixel-based)."""
     words = text.split()
     lines, current = [], []
     for word in words:
@@ -98,11 +99,11 @@ def create_post_image(items: list) -> str:
         try:    return ImageFont.truetype(path, size)
         except: return ImageFont.load_default()
 
-    f_hdr  = font(FONT_BOLD,    40)
-    f_num  = font(FONT_BOLD,    32)
-    f_title= font(FONT_BOLD,    32)
-    f_src  = font(FONT_REGULAR, 20)
-    f_foot = font(FONT_REGULAR, 22)
+    f_hdr   = font(FONT_BOLD,    40)
+    f_num   = font(FONT_BOLD,    32)
+    f_title = font(FONT_BOLD,    32)
+    f_src   = font(FONT_REGULAR, 20)
+    f_foot  = font(FONT_REGULAR, 22)
 
     # Header
     hdr = fa("📡  پنج خبر برتر فناوری امروز")
@@ -110,10 +111,10 @@ def create_post_image(items: list) -> str:
     draw.rectangle([60, 84, W-60, 87], fill=ACCENT)
 
     # Cards
-    card_h = 150
-    gap    = 10
+    card_h   = 150
+    gap      = 10
     y0_start = 100
-    text_max_px = W - 160  # card width minus number circle and padding
+    text_max = W - 160
 
     for i, item in enumerate(items[:5]):
         x0 = 40
@@ -130,7 +131,7 @@ def create_post_image(items: list) -> str:
         draw.text((cx, cy), str(i+1), font=f_num, fill="#060818", anchor="mm")
 
         # Farsi title — pixel-wrapped, right-aligned
-        title_wrapped = fa_wrap(item["title_fa"], f_title, draw, text_max_px)
+        title_wrapped = fa_wrap(item["title_fa"], f_title, draw, text_max)
         draw.text(
             (x1 - 18, y0 + 30),
             title_wrapped,
@@ -215,22 +216,33 @@ def main():
 
     articles = fetch_it_news(5)
     if not articles:
-        print("❌ No articles."); sys.exit(1)
+        print("❌ No articles found.")
+        sys.exit(1)
 
-    items, caption_lines = [], ["🔴 پنج خبر برتر فناوری امروز\n"]
+    print("🔄 Translating to Farsi…")
+    items = []
+    caption_lines = [f"{RLM}🔴 پنج خبر برتر فناوری امروز\n"]
+
     for i, a in enumerate(articles):
         title_fa = to_farsi(a["title"])
         source   = a.get("source", {}).get("name", "Tech")
         print(f"  {i+1}. {title_fa}")
         items.append({"title_fa": title_fa, "source": source})
-        caption_lines.append(f"{i+1}. {title_fa}")
+        caption_lines.append(f"{RLM}{i+1}. {title_fa} - {source}")
 
-    caption_lines += ["\n──────────────────────",
-                      "#فناوری #اخبارفناوری #تکنولوژی #هوش_مصنوعی #IT #Tech"]
+    caption_lines += [
+        f"\n{RLM}──────────────────────",
+        f"{RLM}#فناوری #اخبارفناوری #تکنولوژی #هوش_مصنوعی #IT #Tech",
+    ]
     caption = "\n".join(caption_lines)
 
+    print("🎨 Creating image…")
     create_post_image(items)
+
+    print("☁️  Uploading image…")
     image_url = upload_image(IMAGE_OUT)
+
+    print("📲 Posting to Instagram…")
     post_to_instagram(image_url, caption)
     print("🎉 Done!")
 
