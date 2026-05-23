@@ -105,10 +105,11 @@ def create_post_image(title_fa, desc_fa, source):
     draw.rectangle([100, 108, W - 100, 111], fill=ACCENT)
 
     title_rtl  = rtl(title_fa)
-    title_wrap = wrap_rtl(title_rtl, 16)
-    draw.text(
-        (W // 2, 310),
-        title_wrap,
+title_lines = textwrap.wrap(title_fa, width=16)
+title_wrap = "\n".join([rtl(line) for line in title_lines])
+draw.text(
+    (W // 2, 310),
+    title_wrap,
         font=f_title,
         fill=WHITE,
         anchor="mm",
@@ -120,12 +121,12 @@ def create_post_image(title_fa, desc_fa, source):
         color = ACCENT if i % 2 == 0 else ACCENT2
         draw.ellipse([x, 510, x + 10, 520], fill=color)
 
-    desc_short = desc_fa[:280] + ("..." if len(desc_fa) > 280 else "")
-    desc_rtl   = rtl(desc_short)
-    desc_wrap  = wrap_rtl(desc_rtl, 26)
-    draw.text(
-        (W // 2, 680),
-        desc_wrap,
+desc_short = desc_fa[:280] + ("..." if len(desc_fa) > 280 else "")
+desc_lines = textwrap.wrap(desc_short, width=26)
+desc_wrap  = "\n".join([rtl(line) for line in desc_lines])
+draw.text(
+    (W // 2, 680),
+    desc_wrap,
         font=f_desc,
         fill=MUTED,
         anchor="mm",
