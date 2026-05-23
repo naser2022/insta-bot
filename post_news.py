@@ -171,7 +171,7 @@ def upload_image(path):
 
 # ── 6. Post to Instagram ──────────────────────────────────────────────────────
 def post_to_instagram(image_url, caption):
-    base = f"https://graph.facebook.com/v19.0/{IG_ACCOUNT_ID}"
+    base = f"https://graph.instagram.com/v21.0/{IG_ACCOUNT_ID}"
 
     r1 = requests.post(
         f"{base}/media",
