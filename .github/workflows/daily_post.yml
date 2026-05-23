@@ -25,12 +25,8 @@ jobs:
       - name: 🔤 Download Farsi font
         run: |
           mkdir -p fonts
-          FONT_URL=$(curl -s https://api.github.com/repos/rastikerdar/vazirmatn/releases/latest \
-            | grep "browser_download_url.*font-files.zip" \
-            | cut -d '"' -f 4)
-          echo "Downloading font from: $FONT_URL"
-          curl -fsSL "$FONT_URL" -o vazirmatn.zip
-          unzip -jo vazirmatn.zip "*.ttf" -d fonts/
+          curl -fsSL "https://github.com/rastikerdar/vazirmatn/raw/master/fonts/ttf/Vazirmatn-Regular.ttf" -o fonts/Vazirmatn-Regular.ttf
+          curl -fsSL "https://github.com/rastikerdar/vazirmatn/raw/master/fonts/ttf/Vazirmatn-Bold.ttf" -o fonts/Vazirmatn-Bold.ttf
           ls fonts/
 
       - name: 🚀 Post to Instagram
