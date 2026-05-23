@@ -171,8 +171,10 @@ def upload_image(path):
 
 # ── 6. Post to Instagram ──────────────────────────────────────────────────────
 def post_to_instagram(image_url, caption):
+    import time
     base = f"https://graph.instagram.com/v21.0/{IG_ACCOUNT_ID}"
 
+    # Step 1: Create media container
     r1 = requests.post(
         f"{base}/media",
         data={
@@ -187,10 +189,34 @@ def post_to_instagram(image_url, caption):
     if "id" not in container:
         raise RuntimeError(f"Media container failed: {container}")
 
+    container_id = container["id"]
+
+    # Step 2: Wait until Instagram finishes processing the image
+    print("⏳ Waiting for Instagram to process image...")
+    for attempt in range(10):
+        time.sleep(8)
+        status_r = requests.get(
+            f"https://graph.instagram.com/v21.0/{container_id}",
+            params={
+                "fields":       "status_code,status",
+                "access_token": IG_ACCESS_TOKEN,
+            },
+            timeout=15,
+        )
+        status = status_r.json()
+        print(f"   Status check {attempt+1}: {status}")
+        if status.get("status_code") == "FINISHED":
+            break
+        if status.get("status_code") == "ERROR":
+            raise RuntimeError(f"Media processing error: {status}")
+    else:
+        raise RuntimeError("Media processing timed out after 80 seconds")
+
+    # Step 3: Publish
     r2 = requests.post(
         f"{base}/media_publish",
         data={
-            "creation_id":  container["id"],
+            "creation_id":  container_id,
             "access_token": IG_ACCESS_TOKEN,
         },
         timeout=30,
