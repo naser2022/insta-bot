@@ -69,7 +69,6 @@ def fa_wrap(text: str, font, draw, max_px: int, max_lines: int = 3) -> str:
     words = str(text or "").split()
     if not words:
         return ""
-
     lines = []
     current = []
     for word in words:
@@ -81,10 +80,8 @@ def fa_wrap(text: str, font, draw, max_px: int, max_lines: int = 3) -> str:
             current.append(word)
     if current:
         lines.append(" ".join(current))
-
     if len(lines) <= max_lines:
         return "\n".join(lines)
-
     kept = lines[:max_lines]
     last = kept[-1]
     while last and fa_textlength(draw, last + "…", font) > max_px:
@@ -262,7 +259,7 @@ def create_post_image(items: list) -> str:
 
     f_brand = safe_font(FONT_BOLD, 28)
     f_date = safe_font(FONT_REGULAR, 19)
-    f_header = safe_font(FONT_BOLD, 42)
+    f_header = safe_font(FONT_BOLD, 38)
     f_num = safe_font(FONT_BOLD, 25)
     f_cat = safe_font(FONT_BOLD, 17)
     f_title = safe_font(FONT_BOLD, 28)
@@ -279,8 +276,9 @@ def create_post_image(items: list) -> str:
     date_label = f"{fa_digits(str(now.day))} {persian_months[now.month]} {fa_digits(str(now.year))}"
     fa_draw(draw, (W - 55, 42), date_label, f_date, muted, anchor="rm")
 
-    fa_draw(draw, (W - 55, 92), "پنج خبر برتر فناوری امروز", f_header, white, anchor="ra")
-    draw.line([(55, 125), (W - 55, 125)], fill=(37, 55, 78), width=2)
+    # Keep the headline clearly separated from the divider below it.
+    fa_draw(draw, (W - 55, 88), "پنج خبر برتر فناوری امروز", f_header, white, anchor="ra")
+    draw.line([(55, 124), (W - 55, 124)], fill=(37, 55, 78), width=2)
 
     card_x0, card_x1 = 45, W - 45
     card_h, gap = 166, 8
@@ -365,8 +363,6 @@ def build_caption(items: list) -> str:
         print(f"Instagram fallback caption length: {len(caption)} characters")
         return caption
 
-    # Final safe fallback. Remove complete paragraphs from the end, never cut
-    # a Persian sentence in the middle unless absolutely necessary.
     while len(caption) > INSTAGRAM_CAPTION_LIMIT and "\n\n" in caption:
         caption = caption.rsplit("\n\n", 1)[0]
     return caption[:INSTAGRAM_CAPTION_LIMIT]
