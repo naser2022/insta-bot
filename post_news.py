@@ -1,12 +1,6 @@
 """
 Daily IT News -> Persian editorial rewrite -> Instagram
-Posts 5 technology news items per day as one RTL Persian image.
-
-V1:
-- Natural Persian editorial writing instead of machine translation.
-- Neutral tone and strict source fidelity.
-- Proper Persian RTL/BiDi rendering on the image and caption.
-- More readable editorial card design.
+V1: natural Persian, strict RTL, and Instagram-safe captions.
 """
 
 import os
@@ -33,6 +27,7 @@ FONT_REGULAR = "fonts/Vazirmatn-Regular.ttf"
 IMAGE_OUT = "post.jpg"
 RLM = "\u200f"
 LRM = "\u200e"
+INSTAGRAM_CAPTION_LIMIT = 2200
 
 
 # -----------------------------------------------------------------------------
@@ -45,23 +40,21 @@ def fa_display(text: str) -> str:
 
 
 def fa_digits(text: str) -> str:
-    """Convert Western digits to Persian digits for Persian-facing text."""
+    """Convert Western digits to Persian digits."""
     return str(text).translate(str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹"))
 
 
 def fa_wrap(text: str, font, draw, max_px: int, max_lines: int = 3) -> str:
-    """Wrap logical Persian text by pixel width, then apply BiDi per line."""
+    """Wrap logical Persian text by pixel width, then apply BiDi."""
     words = str(text or "").split()
     if not words:
         return ""
 
     lines = []
     current = []
-
     for word in words:
         candidate = " ".join(current + [word])
-        width = draw.textlength(fa_display(candidate), font=font)
-        if width > max_px and current:
+        if draw.textlength(fa_display(candidate), font=font) > max_px and current:
             lines.append(fa_display(" ".join(current)))
             current = [word]
         else:
@@ -90,7 +83,7 @@ def safe_font(path: str, size: int):
 
 
 # -----------------------------------------------------------------------------
-# 1. Fetch technology news
+# News
 # -----------------------------------------------------------------------------
 def fetch_it_news(count=5):
     resp = requests.get(
@@ -117,34 +110,30 @@ def fetch_it_news(count=5):
 
 
 # -----------------------------------------------------------------------------
-# 2. AI Persian news editor
+# AI Persian editor
 # -----------------------------------------------------------------------------
 def extract_json(text: str) -> dict:
-    """Parse JSON returned by the model, including a possible code fence."""
     cleaned = (text or "").strip()
     cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.I)
     cleaned = re.sub(r"\s*```$", "", cleaned)
-
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError:
         start = cleaned.find("{")
         end = cleaned.rfind("}")
         if start >= 0 and end > start:
-            return json.loads(cleaned[start : end + 1])
+            return json.loads(cleaned[start:end + 1])
         raise
 
 
 def edit_news_in_farsi(article: dict) -> dict:
-    """Create a natural, neutral Persian news item from source material."""
     title = (article.get("title") or "").strip()
     description = (article.get("description") or "").strip()
     content = (article.get("content") or "").strip()
     source = (article.get("source", {}).get("name") or "Tech").strip()
 
     source_material = "\n".join(
-        part
-        for part in [
+        part for part in [
             f"Source: {source}",
             f"Title: {title}",
             f"Description: {description}",
@@ -154,33 +143,35 @@ def edit_news_in_farsi(article: dict) -> dict:
     )
 
     prompt = f"""
-You are the Persian technology news editor for a professional Instagram news account.
+You are a professional Persian technology news editor.
 
-Your task is NOT literal translation. First understand the English source, then
-write a natural Persian news report as a human editor would write it.
+Do NOT translate literally. Understand the source first and then write natural,
+modern Persian as a human newsroom editor would write it.
 
-STRICT EDITORIAL RULES:
-- All Persian output must be natural Persian and intended to be read RIGHT TO LEFT.
-- Do not translate sentence by sentence.
-- Use clear, modern, professional Persian.
-- Be neutral, factual and concise.
+STRICT RULES:
+- Persian text is RIGHT TO LEFT.
+- Use natural Persian sentence structure.
+- Be neutral, factual and professional.
 - Do not praise, criticize, speculate, sensationalize or advertise.
 - Do not invent facts, context, causes, dates, numbers or conclusions.
-- Use only information supported by the supplied source material.
-- Preserve company names, product names, game names, model names, dates and numbers.
-- Keep important technical names in Latin script when that is clearer.
-- Distinguish clearly between confirmed facts and plans, expectations or claims.
-- If the source gives little information, write a shorter report. Do not fill gaps.
+- Use only information supported by the source material.
+- Preserve company, product, game, model and technical names accurately.
+- Keep Latin names when they are clearer than a Persian transliteration.
+- Clearly distinguish confirmed facts from plans, expectations and claims.
+- If the source is short, keep the report short. Never fill missing information.
 - Do not use emojis in title, summary or report.
-- Avoid machine-translation wording and English sentence structure.
+- Avoid machine-translation wording.
 
-Create exactly these four fields:
-1. category: one of AI, Software, Hardware, Cybersecurity, Gaming, Internet, Other
-2. title_fa: one natural Persian headline, about 8-18 words
-3. summary_fa: 2-3 natural Persian sentences, about 35-60 words
-4. caption_fa: a more detailed but factual Persian report, about 70-120 words
+Return ONLY valid JSON with exactly these keys:
+{{
+  "category": "AI | Software | Hardware | Cybersecurity | Gaming | Internet | Other",
+  "title_fa": "natural Persian headline, about 8-18 words",
+  "summary_fa": "2-3 natural Persian sentences, about 35-55 words",
+  "caption_fa": "natural Persian Instagram report, about 40-60 words"
+}}
 
-Return ONLY valid JSON. Do not use Markdown and do not add commentary.
+The caption must be concise enough that five captions plus headings,
+source names and hashtags can fit inside Instagram's 2200-character limit.
 
 SOURCE MATERIAL:
 {source_material[:7000]}
@@ -226,11 +217,10 @@ SOURCE MATERIAL:
 
 
 # -----------------------------------------------------------------------------
-# 3. Create the Instagram image
+# Image
 # -----------------------------------------------------------------------------
 def create_post_image(items: list) -> str:
     W, H = 1080, 1080
-
     bg_top = (5, 9, 20)
     bg_bottom = (10, 19, 35)
     card_bg = (14, 24, 42)
@@ -252,7 +242,6 @@ def create_post_image(items: list) -> str:
 
     img = Image.new("RGB", (W, H), bg_top)
     draw = ImageDraw.Draw(img)
-
     for y in range(H):
         t = y / (H - 1)
         color = tuple(int(bg_top[i] + (bg_bottom[i] - bg_top[i]) * t) for i in range(3))
@@ -277,7 +266,11 @@ def create_post_image(items: list) -> str:
         7: "ژوئیه", 8: "اوت", 9: "سپتامبر", 10: "اکتبر", 11: "نوامبر", 12: "دسامبر",
     }
     now = datetime.now()
-    date_label = f"{fa_display(fa_digits(str(now.day)))} {fa_display(persian_months[now.month])} {fa_display(fa_digits(str(now.year)))}"
+    date_label = (
+        f"{fa_display(fa_digits(str(now.day)))} "
+        f"{fa_display(persian_months[now.month])} "
+        f"{fa_display(fa_digits(str(now.year)))}"
+    )
     draw.text((W - 55, 42), date_label, font=f_date, fill=muted, anchor="rm")
 
     header = fa_display("پنج خبر برتر فناوری امروز")
@@ -304,7 +297,6 @@ def create_post_image(items: list) -> str:
             width=1,
         )
 
-        # Left editorial index area.
         index_x = card_x0 + 46
         draw.text((index_x, y0 + 30), fa_digits(f"{i + 1:02d}"), font=f_num, fill=card_accent, anchor="mm")
         draw.line([(index_x - 16, y0 + 58), (index_x + 16, y0 + 58)], fill=card_accent, width=2)
@@ -312,24 +304,14 @@ def create_post_image(items: list) -> str:
 
         title = fa_wrap(item["title_fa"], f_title, draw, text_width, max_lines=2)
         draw.multiline_text(
-            (text_right, y0 + 22),
-            title,
-            font=f_title,
-            fill=white,
-            anchor="ra",
-            align="right",
-            spacing=5,
+            (text_right, y0 + 22), title, font=f_title, fill=white,
+            anchor="ra", align="right", spacing=5,
         )
 
         summary = fa_wrap(item["summary_fa"], f_summary, draw, text_width, max_lines=2)
         draw.multiline_text(
-            (text_right, y0 + 91),
-            summary,
-            font=f_summary,
-            fill=muted,
-            anchor="ra",
-            align="right",
-            spacing=4,
+            (text_right, y0 + 91), summary, font=f_summary, fill=muted,
+            anchor="ra", align="right", spacing=4,
         )
 
         source_text = f"SOURCE · {item['source']}"
@@ -344,7 +326,7 @@ def create_post_image(items: list) -> str:
 
 
 # -----------------------------------------------------------------------------
-# 4. Upload image
+# Upload
 # -----------------------------------------------------------------------------
 def upload_image(path: str) -> str:
     with open(path, "rb") as f:
@@ -366,9 +348,10 @@ def upload_image(path: str) -> str:
 
 
 # -----------------------------------------------------------------------------
-# 5. Instagram caption
+# Instagram caption
 # -----------------------------------------------------------------------------
 def build_caption(items: list) -> str:
+    """Build a caption below Instagram's 2200-character limit."""
     lines = [f"{RLM}🔴 پنج خبر مهم فناوری امروز", ""]
 
     for i, item in enumerate(items[:5], start=1):
@@ -378,18 +361,47 @@ def build_caption(items: list) -> str:
 
     lines.extend([
         f"{RLM}──────────────────────",
-        f"{RLM}این پست با هدف ارائه خلاصه‌ای کوتاه و بی‌طرفانه از اخبار فناوری تهیه شده است.",
+        f"{RLM}خلاصه‌ای کوتاه و بی‌طرفانه از اخبار فناوری.",
         "",
         f"{RLM}#فناوری #اخبارفناوری #تکنولوژی #هوش_مصنوعی #امنیت_سایبری #AI #Tech #IT",
     ])
-    return "\n".join(lines)
+
+    caption = "\n".join(lines)
+    print(f"Instagram caption length: {len(caption)} characters")
+
+    # Safety fallback. Prefer complete news items. If the generated caption is
+    # still too long, rebuild it with summaries, then trim only the final text.
+    if len(caption) <= INSTAGRAM_CAPTION_LIMIT:
+        return caption
+
+    print("WARNING: Caption is over 2200 characters. Rebuilding with summaries...")
+    lines = [f"{RLM}🔴 پنج خبر مهم فناوری امروز", ""]
+    for i, item in enumerate(items[:5], start=1):
+        lines.append(f"{RLM}{fa_digits(str(i)).zfill(2)}. {item['title_fa']}")
+        lines.append(f"{RLM}{item['summary_fa']}")
+        lines.append(f"{RLM}منبع: {LRM}{item['source']}{LRM}")
+        lines.append("")
+    lines.append(f"{RLM}#فناوری #اخبارفناوری #تکنولوژی #هوش_مصنوعی #امنیت_سایبری #AI #Tech #IT")
+
+    caption = "\n".join(lines)
+    if len(caption) <= INSTAGRAM_CAPTION_LIMIT:
+        print(f"Instagram caption fallback length: {len(caption)} characters")
+        return caption
+
+    # Last-resort hard limit. This should be rare and prevents a known API error.
+    caption = caption[:INSTAGRAM_CAPTION_LIMIT - 1].rstrip() + "…"
+    print(f"WARNING: Caption hard-trimmed to {len(caption)} characters")
+    return caption
 
 
 # -----------------------------------------------------------------------------
-# 6. Post to Instagram
+# Post to Instagram
 # -----------------------------------------------------------------------------
 def post_to_instagram(image_url: str, caption: str):
     base = f"https://graph.instagram.com/v21.0/{IG_ACCOUNT_ID}"
+
+    print(f"Image URL: {image_url}")
+    print(f"Caption length: {len(caption)}")
 
     r1 = requests.post(
         f"{base}/media",
@@ -400,7 +412,15 @@ def post_to_instagram(image_url: str, caption: str):
         },
         timeout=30,
     )
-    r1.raise_for_status()
+
+    # Never hide the useful Instagram error body behind raise_for_status().
+    if not r1.ok:
+        try:
+            error_body = r1.json()
+        except ValueError:
+            error_body = r1.text
+        raise RuntimeError(f"Instagram /media failed ({r1.status_code}): {error_body}")
+
     container = r1.json()
     print(f"Container: {container}")
     if "id" not in container:
@@ -416,7 +436,13 @@ def post_to_instagram(image_url: str, caption: str):
             params={"fields": "status_code", "access_token": IG_ACCESS_TOKEN},
             timeout=15,
         )
-        status_response.raise_for_status()
+        if not status_response.ok:
+            try:
+                error_body = status_response.json()
+            except ValueError:
+                error_body = status_response.text
+            raise RuntimeError(f"Instagram status failed ({status_response.status_code}): {error_body}")
+
         status = status_response.json()
         print(f"  [{attempt + 1}] {status.get('status_code')}")
         if status.get("status_code") == "FINISHED":
@@ -433,7 +459,13 @@ def post_to_instagram(image_url: str, caption: str):
         data={"creation_id": cid, "access_token": IG_ACCESS_TOKEN},
         timeout=30,
     )
-    r2.raise_for_status()
+    if not r2.ok:
+        try:
+            error_body = r2.json()
+        except ValueError:
+            error_body = r2.text
+        raise RuntimeError(f"Instagram /media_publish failed ({r2.status_code}): {error_body}")
+
     result = r2.json()
     print(f"Publish result: {result}")
     return result
