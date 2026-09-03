@@ -44,6 +44,11 @@ def fa_display(text: str) -> str:
     return get_display(arabic_reshaper.reshape(text))
 
 
+def fa_digits(text: str) -> str:
+    """Convert Western digits to Persian digits for Persian-facing text."""
+    return str(text).translate(str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹"))
+
+
 def fa_wrap(text: str, font, draw, max_px: int, max_lines: int = 3) -> str:
     """Wrap logical Persian text by pixel width, then apply BiDi per line."""
     words = str(text or "").split()
