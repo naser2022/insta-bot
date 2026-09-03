@@ -1,6 +1,6 @@
 """
-Daily IT News -> Persian editorial rewrite -> Instagram
-V1: natural Persian, strict RTL, and Instagram-safe captions.
+Daily IT News -> Persian editorial rewrite -> Instagram.
+V2: correct Persian RTL/BiDi rendering and cleaner Persian typography.
 """
 
 import os
@@ -11,7 +11,7 @@ import re
 import time
 import requests
 from datetime import datetime
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, features
 import arabic_reshaper
 from bidi.algorithm import get_display
 
@@ -28,24 +28,44 @@ IMAGE_OUT = "post.jpg"
 RLM = "\u200f"
 LRM = "\u200e"
 INSTAGRAM_CAPTION_LIMIT = 2200
-
-
-# -----------------------------------------------------------------------------
-# Persian RTL helpers
-# -----------------------------------------------------------------------------
-def fa_display(text: str) -> str:
-    """Convert logical Persian text to a PIL-ready visual RTL string."""
-    text = str(text or "")
-    return get_display(arabic_reshaper.reshape(text))
+USE_RAQM = features.check("raqm")
 
 
 def fa_digits(text: str) -> str:
-    """Convert Western digits to Persian digits."""
     return str(text).translate(str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹"))
 
 
+def fa_display(text: str) -> str:
+    """Prepare Persian text for PIL only when libraqm is unavailable."""
+    text = str(text or "")
+    if USE_RAQM:
+        return text
+    return get_display(arabic_reshaper.reshape(text))
+
+
+def fa_textlength(draw, text: str, font) -> float:
+    if USE_RAQM:
+        return draw.textlength(text, font=font, direction="rtl", language="fa")
+    return draw.textlength(fa_display(text), font=font)
+
+
+def fa_draw(draw, xy, text: str, font, fill, anchor="ra", spacing=4):
+    """Draw logical Persian text. Pillow/RAQM performs the BiDi layout."""
+    kwargs = {
+        "font": font,
+        "fill": fill,
+        "anchor": anchor,
+        "align": "right",
+        "spacing": spacing,
+    }
+    if USE_RAQM:
+        kwargs.update(direction="rtl", language="fa")
+        return draw.multiline_text(xy, str(text or ""), **kwargs)
+    return draw.multiline_text(xy, fa_display(text), **kwargs)
+
+
 def fa_wrap(text: str, font, draw, max_px: int, max_lines: int = 3) -> str:
-    """Wrap logical Persian text by pixel width, then apply BiDi."""
+    """Wrap logical Persian text. Never reverse the logical string."""
     words = str(text or "").split()
     if not words:
         return ""
@@ -54,21 +74,20 @@ def fa_wrap(text: str, font, draw, max_px: int, max_lines: int = 3) -> str:
     current = []
     for word in words:
         candidate = " ".join(current + [word])
-        if draw.textlength(fa_display(candidate), font=font) > max_px and current:
-            lines.append(fa_display(" ".join(current)))
+        if fa_textlength(draw, candidate, font) > max_px and current:
+            lines.append(" ".join(current))
             current = [word]
         else:
             current.append(word)
-
     if current:
-        lines.append(fa_display(" ".join(current)))
+        lines.append(" ".join(current))
 
     if len(lines) <= max_lines:
         return "\n".join(lines)
 
     kept = lines[:max_lines]
     last = kept[-1]
-    while last and draw.textlength(last + "…", font=font) > max_px:
+    while last and fa_textlength(draw, last + "…", font) > max_px:
         last = last[:-1]
     kept[-1] = last.rstrip() + "…"
     return "\n".join(kept)
@@ -97,7 +116,6 @@ def fetch_it_news(count=5):
         timeout=15,
     )
     resp.raise_for_status()
-
     results = []
     for article in resp.json().get("articles", []):
         title = (article.get("title") or "").strip()
@@ -119,8 +137,7 @@ def extract_json(text: str) -> dict:
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError:
-        start = cleaned.find("{")
-        end = cleaned.rfind("}")
+        start, end = cleaned.find("{"), cleaned.rfind("}")
         if start >= 0 and end > start:
             return json.loads(cleaned[start:end + 1])
         raise
@@ -145,33 +162,34 @@ def edit_news_in_farsi(article: dict) -> dict:
     prompt = f"""
 You are a professional Persian technology news editor.
 
-Do NOT translate literally. Understand the source first and then write natural,
-modern Persian as a human newsroom editor would write it.
+Understand the English source first. Then write a natural Persian news report.
+Do NOT translate word by word or sentence by sentence.
 
-STRICT RULES:
-- Persian text is RIGHT TO LEFT.
-- Use natural Persian sentence structure.
-- Be neutral, factual and professional.
-- Do not praise, criticize, speculate, sensationalize or advertise.
-- Do not invent facts, context, causes, dates, numbers or conclusions.
-- Use only information supported by the source material.
-- Preserve company, product, game, model and technical names accurately.
-- Keep Latin names when they are clearer than a Persian transliteration.
-- Clearly distinguish confirmed facts from plans, expectations and claims.
-- If the source is short, keep the report short. Never fill missing information.
+RULES:
+- Persian is written RIGHT TO LEFT.
+- Use modern, natural Persian used by a professional technology newsroom.
+- The headline must sound like a real Persian news headline.
+- The summary must explain what happened, who/what is involved, and the key
+  detail that is supported by the source.
+- The Instagram report may be more detailed, but it must stay factual.
+- Neutral tone. No hype, praise, criticism, clickbait or advertising.
+- Never invent facts, reasons, dates, prices, specifications or conclusions.
+- Do not turn a possibility, plan, claim or expectation into a confirmed fact.
+- Keep product, company, game and technical names accurate. Keep Latin names
+  when that is clearer than a Persian transliteration.
+- Use Persian grammar and natural sentence order.
 - Do not use emojis in title, summary or report.
-- Avoid machine-translation wording.
+- Avoid machine-translation phrases and awkward literal translations.
 
 Return ONLY valid JSON with exactly these keys:
 {{
   "category": "AI | Software | Hardware | Cybersecurity | Gaming | Internet | Other",
-  "title_fa": "natural Persian headline, about 8-18 words",
-  "summary_fa": "2-3 natural Persian sentences, about 35-55 words",
-  "caption_fa": "natural Persian Instagram report, about 40-60 words"
+  "title_fa": "natural Persian headline, 8-16 words",
+  "summary_fa": "2 natural Persian sentences, about 30-50 words",
+  "caption_fa": "natural Persian Instagram report, about 45-65 words"
 }}
 
-The caption must be concise enough that five captions plus headings,
-source names and hashtags can fit inside Instagram's 2200-character limit.
+The five reports together must fit Instagram's 2200-character caption limit.
 
 SOURCE MATERIAL:
 {source_material[:7000]}
@@ -221,31 +239,23 @@ SOURCE MATERIAL:
 # -----------------------------------------------------------------------------
 def create_post_image(items: list) -> str:
     W, H = 1080, 1080
-    bg_top = (5, 9, 20)
-    bg_bottom = (10, 19, 35)
-    card_bg = (14, 24, 42)
-    card_edge = (30, 47, 70)
-    white = "#f8fafc"
-    muted = "#94a3b8"
-    accent = "#22d3ee"
-    purple = "#8b5cf6"
+    bg_top, bg_bottom = (5, 9, 20), (10, 19, 35)
+    card_bg, card_edge = (14, 24, 42), (30, 47, 70)
+    white, muted = "#f8fafc", "#94a3b8"
+    accent, purple = "#22d3ee", "#8b5cf6"
 
     category_colors = {
-        "AI": accent,
-        "Software": "#60a5fa",
-        "Hardware": "#34d399",
-        "Cybersecurity": "#fb7185",
-        "Gaming": "#c084fc",
-        "Internet": "#38bdf8",
-        "Other": muted,
+        "AI": accent, "Software": "#60a5fa", "Hardware": "#34d399",
+        "Cybersecurity": "#fb7185", "Gaming": "#c084fc",
+        "Internet": "#38bdf8", "Other": muted,
     }
 
     img = Image.new("RGB", (W, H), bg_top)
     draw = ImageDraw.Draw(img)
     for y in range(H):
         t = y / (H - 1)
-        color = tuple(int(bg_top[i] + (bg_bottom[i] - bg_top[i]) * t) for i in range(3))
-        draw.line([(0, y), (W, y)], fill=color)
+        c = tuple(int(bg_top[i] + (bg_bottom[i] - bg_top[i]) * t) for i in range(3))
+        draw.line([(0, y), (W, y)], fill=c)
 
     draw.rectangle([0, 0, W, 5], fill=accent)
     draw.rectangle([0, H - 5, W, H], fill=purple)
@@ -266,59 +276,38 @@ def create_post_image(items: list) -> str:
         7: "ژوئیه", 8: "اوت", 9: "سپتامبر", 10: "اکتبر", 11: "نوامبر", 12: "دسامبر",
     }
     now = datetime.now()
-    date_label = (
-        f"{fa_display(fa_digits(str(now.day)))} "
-        f"{fa_display(persian_months[now.month])} "
-        f"{fa_display(fa_digits(str(now.year)))}"
-    )
-    draw.text((W - 55, 42), date_label, font=f_date, fill=muted, anchor="rm")
+    date_label = f"{fa_digits(str(now.day))} {persian_months[now.month]} {fa_digits(str(now.year))}"
+    fa_draw(draw, (W - 55, 42), date_label, f_date, muted, anchor="rm")
 
-    header = fa_display("پنج خبر برتر فناوری امروز")
-    draw.text((W - 55, 92), header, font=f_header, fill=white, anchor="ra")
+    fa_draw(draw, (W - 55, 92), "پنج خبر برتر فناوری امروز", f_header, white, anchor="ra")
     draw.line([(55, 125), (W - 55, 125)], fill=(37, 55, 78), width=2)
 
     card_x0, card_x1 = 45, W - 45
     card_h, gap = 166, 8
     y_start = 143
-    text_right = card_x1 - 30
-    text_width = 760
+    text_right, text_width = card_x1 - 30, 760
 
     for i, item in enumerate(items[:5]):
-        y0 = y_start + i * (card_h + gap)
-        y1 = y0 + card_h
+        y0, y1 = y_start + i * (card_h + gap), y_start + i * (card_h + gap) + card_h
         category = item.get("category", "Other")
         card_accent = category_colors.get(category, accent)
 
-        draw.rounded_rectangle(
-            [card_x0, y0, card_x1, y1],
-            radius=16,
-            fill=card_bg,
-            outline=card_edge,
-            width=1,
-        )
+        draw.rounded_rectangle([card_x0, y0, card_x1, y1], radius=16, fill=card_bg, outline=card_edge, width=1)
 
         index_x = card_x0 + 46
         draw.text((index_x, y0 + 30), fa_digits(f"{i + 1:02d}"), font=f_num, fill=card_accent, anchor="mm")
         draw.line([(index_x - 16, y0 + 58), (index_x + 16, y0 + 58)], fill=card_accent, width=2)
         draw.text((index_x, y0 + 88), category.upper(), font=f_cat, fill=card_accent, anchor="mm")
 
-        title = fa_wrap(item["title_fa"], f_title, draw, text_width, max_lines=2)
-        draw.multiline_text(
-            (text_right, y0 + 22), title, font=f_title, fill=white,
-            anchor="ra", align="right", spacing=5,
-        )
+        title = fa_wrap(item["title_fa"], f_title, draw, text_width, 2)
+        fa_draw(draw, (text_right, y0 + 22), title, f_title, white, anchor="ra", spacing=5)
 
-        summary = fa_wrap(item["summary_fa"], f_summary, draw, text_width, max_lines=2)
-        draw.multiline_text(
-            (text_right, y0 + 91), summary, font=f_summary, fill=muted,
-            anchor="ra", align="right", spacing=4,
-        )
+        summary = fa_wrap(item["summary_fa"], f_summary, draw, text_width, 2)
+        fa_draw(draw, (text_right, y0 + 91), summary, f_summary, muted, anchor="ra", spacing=4)
 
-        source_text = f"SOURCE · {item['source']}"
-        draw.text((text_right, y1 - 14), source_text, font=f_source, fill=(113, 132, 154), anchor="ra")
+        draw.text((text_right, y1 - 14), f"SOURCE · {item['source']}", font=f_source, fill=(113, 132, 154), anchor="ra")
 
-    footer = fa_display("خبرهای فناوری، کوتاه و بی‌طرفانه")
-    draw.text((W - 55, H - 22), footer, font=f_source, fill=muted, anchor="rs")
+    fa_draw(draw, (W - 55, H - 22), "خبرهای فناوری، کوتاه و بی‌طرفانه", f_source, muted, anchor="rs")
 
     img.save(IMAGE_OUT, quality=95, optimize=True)
     print(f"OK: Image saved -> {IMAGE_OUT}")
@@ -326,12 +315,11 @@ def create_post_image(items: list) -> str:
 
 
 # -----------------------------------------------------------------------------
-# Upload
+# Upload and Instagram
 # -----------------------------------------------------------------------------
 def upload_image(path: str) -> str:
     with open(path, "rb") as f:
         b64 = base64.b64encode(f.read()).decode()
-
     resp = requests.post(
         "https://api.imgbb.com/1/upload",
         data={"key": IMGBB_API_KEY, "image": b64, "expiration": 86400},
@@ -341,116 +329,82 @@ def upload_image(path: str) -> str:
     data = resp.json()
     if not data.get("success"):
         raise RuntimeError(f"imgbb failed: {data}")
-
     url = data["data"]["url"]
     print(f"OK: Hosted -> {url}")
     return url
 
 
-# -----------------------------------------------------------------------------
-# Instagram caption
-# -----------------------------------------------------------------------------
 def build_caption(items: list) -> str:
-    """Build a caption below Instagram's 2200-character limit."""
     lines = [f"{RLM}🔴 پنج خبر مهم فناوری امروز", ""]
-
     for i, item in enumerate(items[:5], start=1):
-        lines.append(f"{RLM}{fa_digits(str(i)).zfill(2)}. {item['caption_fa']}")
+        lines.append(f"{RLM}{fa_digits(str(i))}. {item['caption_fa']}")
         lines.append(f"{RLM}منبع: {LRM}{item['source']}{LRM}")
         lines.append("")
-
-    lines.extend([
+    lines += [
         f"{RLM}──────────────────────",
         f"{RLM}خلاصه‌ای کوتاه و بی‌طرفانه از اخبار فناوری.",
         "",
         f"{RLM}#فناوری #اخبارفناوری #تکنولوژی #هوش_مصنوعی #امنیت_سایبری #AI #Tech #IT",
-    ])
-
+    ]
     caption = "\n".join(lines)
     print(f"Instagram caption length: {len(caption)} characters")
 
-    # Safety fallback. Prefer complete news items. If the generated caption is
-    # still too long, rebuild it with summaries, then trim only the final text.
     if len(caption) <= INSTAGRAM_CAPTION_LIMIT:
         return caption
 
-    print("WARNING: Caption is over 2200 characters. Rebuilding with summaries...")
+    print("WARNING: Caption over limit; using summaries.")
     lines = [f"{RLM}🔴 پنج خبر مهم فناوری امروز", ""]
     for i, item in enumerate(items[:5], start=1):
-        lines.append(f"{RLM}{fa_digits(str(i)).zfill(2)}. {item['title_fa']}")
-        lines.append(f"{RLM}{item['summary_fa']}")
+        lines.append(f"{RLM}{fa_digits(str(i))}. {item['title_fa']} — {item['summary_fa']}")
         lines.append(f"{RLM}منبع: {LRM}{item['source']}{LRM}")
         lines.append("")
-    lines.append(f"{RLM}#فناوری #اخبارفناوری #تکنولوژی #هوش_مصنوعی #امنیت_سایبری #AI #Tech #IT")
-
+    lines.append(f"{RLM}#فناوری #اخبارفناوری #تکنولوژی #هوش_مصنوعی #AI #Tech #IT")
     caption = "\n".join(lines)
+
     if len(caption) <= INSTAGRAM_CAPTION_LIMIT:
-        print(f"Instagram caption fallback length: {len(caption)} characters")
+        print(f"Instagram fallback caption length: {len(caption)} characters")
         return caption
 
-    # Last-resort hard limit. This should be rare and prevents a known API error.
-    caption = caption[:INSTAGRAM_CAPTION_LIMIT - 1].rstrip() + "…"
-    print(f"WARNING: Caption hard-trimmed to {len(caption)} characters")
-    return caption
+    # Final safe fallback. Remove complete paragraphs from the end, never cut
+    # a Persian sentence in the middle unless absolutely necessary.
+    while len(caption) > INSTAGRAM_CAPTION_LIMIT and "\n\n" in caption:
+        caption = caption.rsplit("\n\n", 1)[0]
+    return caption[:INSTAGRAM_CAPTION_LIMIT]
 
 
-# -----------------------------------------------------------------------------
-# Post to Instagram
-# -----------------------------------------------------------------------------
 def post_to_instagram(image_url: str, caption: str):
     base = f"https://graph.instagram.com/v21.0/{IG_ACCOUNT_ID}"
-
-    print(f"Image URL: {image_url}")
-    print(f"Caption length: {len(caption)}")
-
     r1 = requests.post(
         f"{base}/media",
-        data={
-            "image_url": image_url,
-            "caption": caption,
-            "access_token": IG_ACCESS_TOKEN,
-        },
+        data={"image_url": image_url, "caption": caption, "access_token": IG_ACCESS_TOKEN},
         timeout=30,
     )
-
-    # Never hide the useful Instagram error body behind raise_for_status().
     if not r1.ok:
-        try:
-            error_body = r1.json()
-        except ValueError:
-            error_body = r1.text
-        raise RuntimeError(f"Instagram /media failed ({r1.status_code}): {error_body}")
-
+        print(f"Instagram /media failed ({r1.status_code}): {r1.text}")
+    r1.raise_for_status()
     container = r1.json()
     print(f"Container: {container}")
     if "id" not in container:
         raise RuntimeError(f"Container failed: {container}")
 
     cid = container["id"]
-    print("Waiting for Instagram processing...")
+    print("Waiting for processing...")
     finished = False
     for attempt in range(12):
         time.sleep(8)
-        status_response = requests.get(
+        r = requests.get(
             f"https://graph.instagram.com/v21.0/{cid}",
             params={"fields": "status_code", "access_token": IG_ACCESS_TOKEN},
             timeout=15,
         )
-        if not status_response.ok:
-            try:
-                error_body = status_response.json()
-            except ValueError:
-                error_body = status_response.text
-            raise RuntimeError(f"Instagram status failed ({status_response.status_code}): {error_body}")
-
-        status = status_response.json()
-        print(f"  [{attempt + 1}] {status.get('status_code')}")
+        r.raise_for_status()
+        status = r.json()
+        print(f"   [{attempt + 1}] {status.get('status_code')}")
         if status.get("status_code") == "FINISHED":
             finished = True
             break
         if status.get("status_code") == "ERROR":
             raise RuntimeError(f"Processing error: {status}")
-
     if not finished:
         raise RuntimeError("Instagram media container did not finish processing in time")
 
@@ -460,28 +414,22 @@ def post_to_instagram(image_url: str, caption: str):
         timeout=30,
     )
     if not r2.ok:
-        try:
-            error_body = r2.json()
-        except ValueError:
-            error_body = r2.text
-        raise RuntimeError(f"Instagram /media_publish failed ({r2.status_code}): {error_body}")
-
+        print(f"Instagram /media_publish failed ({r2.status_code}): {r2.text}")
+    r2.raise_for_status()
     result = r2.json()
-    print(f"Publish result: {result}")
+    print(f"Result: {result}")
     return result
 
 
-# -----------------------------------------------------------------------------
-# Main
-# -----------------------------------------------------------------------------
 def main():
     print("=" * 60)
     print(f"Starting: {datetime.utcnow().strftime('%Y-%m-%d %H:%M')} UTC")
+    print(f"Pillow RAQM RTL support: {USE_RAQM}")
     print("=" * 60)
 
     articles = fetch_it_news(5)
     if not articles:
-        print("ERROR: No articles found.")
+        print("No articles found.")
         sys.exit(1)
 
     print(f"Found {len(articles)} technology articles")
@@ -494,13 +442,12 @@ def main():
         print(f"  {i}. [{item['category']}] {item['title_fa']}")
 
     if len(items) != 5:
-        raise RuntimeError(f"Expected 5 news items, got {len(items)}")
+        raise RuntimeError("Exactly 5 news items are required")
 
     print("Creating RTL Persian image...")
     create_post_image(items)
 
     caption = build_caption(items)
-
     print("Uploading image...")
     image_url = upload_image(IMAGE_OUT)
 
