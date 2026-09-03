@@ -128,6 +128,7 @@ def fetch_it_news(count=5):
 # AI Persian editor
 # -----------------------------------------------------------------------------
 def extract_json(text: str) -> dict:
+    """Parse structured model output, with a safe fallback for plain JSON."""
     cleaned = (text or "").strip()
     cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.I)
     cleaned = re.sub(r"\s*```$", "", cleaned)
@@ -178,13 +179,11 @@ RULES:
 - Do not use emojis in title, summary or report.
 - Avoid machine-translation phrases and awkward literal translations.
 
-Return ONLY valid JSON with exactly these keys:
-{{
-  "category": "AI | Software | Hardware | Cybersecurity | Gaming | Internet | Other",
-  "title_fa": "natural Persian headline, 8-16 words",
-  "summary_fa": "2 natural Persian sentences, about 30-50 words",
-  "caption_fa": "natural Persian Instagram report, about 45-65 words"
-}}
+Return exactly these four fields:
+- category: one of AI, Software, Hardware, Cybersecurity, Gaming, Internet, Other
+- title_fa: natural Persian headline, 8-16 words
+- summary_fa: 2 natural Persian sentences, about 30-50 words
+- caption_fa: natural Persian Instagram report, about 45-65 words
 
 The five reports together must fit Instagram's 2200-character caption limit.
 
@@ -192,6 +191,8 @@ SOURCE MATERIAL:
 {source_material[:7000]}
 """.strip()
 
+    # Structured Outputs prevents malformed JSON when Persian text contains
+    # quotation marks or other JSON-sensitive characters.
     response = requests.post(
         "https://api.openai.com/v1/responses",
         headers={
@@ -202,6 +203,31 @@ SOURCE MATERIAL:
             "model": OPENAI_MODEL,
             "input": prompt,
             "max_output_tokens": 900,
+            "text": {
+                "format": {
+                    "type": "json_schema",
+                    "name": "persian_news_item",
+                    "description": "A factual Persian technology news item.",
+                    "strict": True,
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "category": {
+                                "type": "string",
+                                "enum": [
+                                    "AI", "Software", "Hardware", "Cybersecurity",
+                                    "Gaming", "Internet", "Other"
+                                ]
+                            },
+                            "title_fa": {"type": "string"},
+                            "summary_fa": {"type": "string"},
+                            "caption_fa": {"type": "string"}
+                        },
+                        "required": ["category", "title_fa", "summary_fa", "caption_fa"],
+                        "additionalProperties": False
+                    }
+                }
+            }
         },
         timeout=60,
     )
@@ -216,6 +242,9 @@ SOURCE MATERIAL:
                 if part.get("type") == "output_text" and part.get("text"):
                     chunks.append(part["text"])
         output_text = "".join(chunks).strip()
+
+    if not output_text:
+        raise RuntimeError(f"OpenAI returned no text output: {data}")
 
     result = extract_json(output_text)
     required = ["category", "title_fa", "summary_fa", "caption_fa"]
