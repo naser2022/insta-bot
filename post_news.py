@@ -36,7 +36,6 @@ def fa_digits(text: str) -> str:
 
 
 def fa_display(text: str) -> str:
-    """Prepare Persian text for PIL only when libraqm is unavailable."""
     text = str(text or "")
     if USE_RAQM:
         return text
@@ -50,7 +49,6 @@ def fa_textlength(draw, text: str, font) -> float:
 
 
 def fa_draw(draw, xy, text: str, font, fill, anchor="ra", spacing=4):
-    """Draw logical Persian text. Pillow/RAQM performs the BiDi layout."""
     kwargs = {
         "font": font,
         "fill": fill,
@@ -65,7 +63,6 @@ def fa_draw(draw, xy, text: str, font, fill, anchor="ra", spacing=4):
 
 
 def fa_wrap(text: str, font, draw, max_px: int, max_lines: int = 3) -> str:
-    """Wrap logical Persian text. Never reverse the logical string."""
     words = str(text or "").split()
     if not words:
         return ""
@@ -128,7 +125,6 @@ def fetch_it_news(count=5):
 # AI Persian editor
 # -----------------------------------------------------------------------------
 def extract_json(text: str) -> dict:
-    """Parse structured model output, with a safe fallback for plain JSON."""
     cleaned = (text or "").strip()
     cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.I)
     cleaned = re.sub(r"\s*```$", "", cleaned)
@@ -167,7 +163,7 @@ RULES:
 - Persian is written RIGHT TO LEFT.
 - Use modern, natural Persian used by a professional technology newsroom.
 - The headline must sound like a real Persian news headline.
-- The summary must explain what happened, who/what is involved, and the key
+- The summary must explain what happened, who or what is involved, and the key
   detail that is supported by the source.
 - The Instagram report may be more detailed, but it must stay factual.
 - Neutral tone. No hype, praise, criticism, clickbait or advertising.
@@ -191,8 +187,6 @@ SOURCE MATERIAL:
 {source_material[:7000]}
 """.strip()
 
-    # Structured Outputs prevents malformed JSON when Persian text contains
-    # quotation marks or other JSON-sensitive characters.
     response = requests.post(
         "https://api.openai.com/v1/responses",
         headers={
@@ -288,7 +282,7 @@ def create_post_image(items: list) -> str:
 
     f_brand = safe_font(FONT_BOLD, 28)
     f_date = safe_font(FONT_REGULAR, 19)
-    f_header = safe_font(FONT_BOLD, 38)
+    f_header = safe_font(FONT_BOLD, 36)
     f_num = safe_font(FONT_BOLD, 25)
     f_cat = safe_font(FONT_BOLD, 17)
     f_title = safe_font(FONT_BOLD, 28)
@@ -305,8 +299,17 @@ def create_post_image(items: list) -> str:
     date_label = f"{fa_digits(str(now.day))} {persian_months[now.month]} {fa_digits(str(now.year))}"
     fa_draw(draw, (W - 55, 42), date_label, f_date, muted, anchor="rm")
 
-    # Keep the headline clearly separated from the divider below it.
-    fa_draw(draw, (W - 55, 88), "پنج خبر برتر فناوری امروز", f_header, white, anchor="ra")
+    # Persian headline: use a TOP anchor so the glyphs stay above the divider.
+    # This avoids the previous overlap between the headline and the divider.
+    fa_draw(
+        draw,
+        (W - 55, 72),
+        "پنج خبر برتر فناوری امروز",
+        f_header,
+        white,
+        anchor="rt",
+        spacing=4,
+    )
     draw.line([(55, 124), (W - 55, 124)], fill=(37, 55, 78), width=2)
 
     card_x0, card_x1 = 45, W - 45
@@ -315,16 +318,39 @@ def create_post_image(items: list) -> str:
     text_right, text_width = card_x1 - 30, 760
 
     for i, item in enumerate(items[:5]):
-        y0, y1 = y_start + i * (card_h + gap), y_start + i * (card_h + gap) + card_h
+        y0 = y_start + i * (card_h + gap)
+        y1 = y0 + card_h
         category = item.get("category", "Other")
         card_accent = category_colors.get(category, accent)
 
-        draw.rounded_rectangle([card_x0, y0, card_x1, y1], radius=16, fill=card_bg, outline=card_edge, width=1)
+        draw.rounded_rectangle(
+            [card_x0, y0, card_x1, y1],
+            radius=16,
+            fill=card_bg,
+            outline=card_edge,
+            width=1,
+        )
 
         index_x = card_x0 + 46
-        draw.text((index_x, y0 + 30), fa_digits(f"{i + 1:02d}"), font=f_num, fill=card_accent, anchor="mm")
-        draw.line([(index_x - 16, y0 + 58), (index_x + 16, y0 + 58)], fill=card_accent, width=2)
-        draw.text((index_x, y0 + 88), category.upper(), font=f_cat, fill=card_accent, anchor="mm")
+        draw.text(
+            (index_x, y0 + 30),
+            fa_digits(f"{i + 1:02d}"),
+            font=f_num,
+            fill=card_accent,
+            anchor="mm",
+        )
+        draw.line(
+            [(index_x - 16, y0 + 58), (index_x + 16, y0 + 58)],
+            fill=card_accent,
+            width=2,
+        )
+        draw.text(
+            (index_x, y0 + 88),
+            category.upper(),
+            font=f_cat,
+            fill=card_accent,
+            anchor="mm",
+        )
 
         title = fa_wrap(item["title_fa"], f_title, draw, text_width, 2)
         fa_draw(draw, (text_right, y0 + 22), title, f_title, white, anchor="ra", spacing=5)
@@ -332,9 +358,22 @@ def create_post_image(items: list) -> str:
         summary = fa_wrap(item["summary_fa"], f_summary, draw, text_width, 2)
         fa_draw(draw, (text_right, y0 + 91), summary, f_summary, muted, anchor="ra", spacing=4)
 
-        draw.text((text_right, y1 - 14), f"SOURCE · {item['source']}", font=f_source, fill=(113, 132, 154), anchor="ra")
+        draw.text(
+            (text_right, y1 - 14),
+            f"SOURCE · {item['source']}",
+            font=f_source,
+            fill=(113, 132, 154),
+            anchor="ra",
+        )
 
-    fa_draw(draw, (W - 55, H - 22), "خبرهای فناوری، کوتاه و بی‌طرفانه", f_source, muted, anchor="rs")
+    fa_draw(
+        draw,
+        (W - 55, H - 22),
+        "خبرهای فناوری، کوتاه و بی‌طرفانه",
+        f_source,
+        muted,
+        anchor="rs",
+    )
 
     img.save(IMAGE_OUT, quality=95, optimize=True)
     print(f"OK: Image saved -> {IMAGE_OUT}")
@@ -401,7 +440,11 @@ def post_to_instagram(image_url: str, caption: str):
     base = f"https://graph.instagram.com/v21.0/{IG_ACCOUNT_ID}"
     r1 = requests.post(
         f"{base}/media",
-        data={"image_url": image_url, "caption": caption, "access_token": IG_ACCESS_TOKEN},
+        data={
+            "image_url": image_url,
+            "caption": caption,
+            "access_token": IG_ACCESS_TOKEN,
+        },
         timeout=30,
     )
     if not r1.ok:
@@ -430,6 +473,7 @@ def post_to_instagram(image_url: str, caption: str):
             break
         if status.get("status_code") == "ERROR":
             raise RuntimeError(f"Processing error: {status}")
+
     if not finished:
         raise RuntimeError("Instagram media container did not finish processing in time")
 
